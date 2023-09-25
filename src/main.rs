@@ -27,6 +27,8 @@ enum Commands {
 
 #[derive(Args, Debug)]
 struct AddArgs {
+    /// Amount spent or received. Can be a negative or positive number.
+    #[arg(allow_negative_numbers = true)]
     amount: isize,
     #[arg(short, long)]
     month: Month,
