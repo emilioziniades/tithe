@@ -3,7 +3,10 @@ use std::{
     path::Path,
 };
 
+use anyhow::bail;
 use clap::{Args, Parser, Subcommand};
+use itertools::Itertools;
+use time::{Date, Month};
 
 #[derive(Parser, Debug)]
 #[command(author, version, propagate_version = true)]
@@ -26,9 +29,9 @@ enum Commands {
 struct AddArgs {
     amount: isize,
     #[arg(short, long)]
-    month: time::Month,
+    month: Month,
     #[arg(short, long)]
-    year: usize,
+    year: i32,
     #[arg(short, long)]
     group: String,
     #[arg(short, long)]
@@ -42,13 +45,13 @@ struct SummaryArgs {
     #[arg(short, long)]
     month: Option<time::Month>,
     #[arg(short, long)]
-    year: Option<usize>,
+    year: Option<i32>,
 }
 
 #[derive(serde::Deserialize, serde::Serialize, Debug)]
 struct Entry {
     month: time::Month,
-    year: usize,
+    year: i32,
     group: String,
     subgroup: String,
     amount: isize,
@@ -70,14 +73,12 @@ impl From<AddArgs> for Entry {
 
 fn main() -> anyhow::Result<()> {
     let args = Cli::parse();
-    println!("{args:?}");
 
     let file_exists = Path::new(&args.file).exists();
 
     let file = OpenOptions::new()
         .create(true)
         .read(true)
-        .write(true)
         .append(true)
         .open(&args.file)?;
 
@@ -102,11 +103,45 @@ fn add(file: File, add_args: AddArgs, file_exists: bool) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn summary(file: File, _summary_args: SummaryArgs) -> anyhow::Result<()> {
+fn summary(file: File, summary_args: SummaryArgs) -> anyhow::Result<()> {
     let mut csv_reader = csv::Reader::from_reader(file);
     let entries: Result<Vec<Entry>, csv::Error> = csv_reader.deserialize().collect();
     let entries = entries?;
-    println!("{entries:#?}");
+
+    let mut entries: Vec<Entry> = match (summary_args.month, summary_args.year) {
+        (None, None) => entries,
+        (Some(_month), None) => bail!("month is specified, but year is not"),
+        (None, Some(year)) => entries
+            .into_iter()
+            .filter(|entry| entry.year == year)
+            .collect(),
+        (Some(month), Some(year)) => entries
+            .into_iter()
+            .filter(|entry| entry.year == year && entry.month == month)
+            .collect(),
+    };
+
+    entries.sort_by_key(|entry| Date::from_calendar_date(entry.year, entry.month, 1).unwrap());
+
+    let entries = entries
+        .into_iter()
+        .group_by(|entry| (entry.month, entry.year));
+
+    for ((month, year), entries) in &entries {
+        let entries: Vec<Entry> = entries.collect();
+        println!("{month} {year}");
+        for (group, entries) in &entries.into_iter().group_by(|entry| entry.group.clone()) {
+            let entries: Vec<Entry> = entries.collect();
+            let group_amount: isize = entries.iter().map(|entry| entry.amount).sum();
+            println!("\t{group: <20}{:<20}{group_amount:<20}", "");
+            for (subgroup, entries) in &entries.into_iter().group_by(|entry| entry.subgroup.clone())
+            {
+                let entries: Vec<Entry> = entries.collect();
+                let subgroup_amount: isize = entries.iter().map(|entry| entry.amount).sum();
+                println!("\t\t{subgroup: <20}{subgroup_amount:<20}");
+            }
+        }
+    }
 
     Ok(())
 }
