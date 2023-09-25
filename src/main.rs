@@ -5,6 +5,7 @@ use std::{
 
 use anyhow::bail;
 use clap::{Args, Parser, Subcommand};
+use colored::Colorize;
 use itertools::Itertools;
 use time::{Date, Month};
 
@@ -123,7 +124,13 @@ fn summary(file: File, summary_args: SummaryArgs) -> anyhow::Result<()> {
             .collect(),
     };
 
-    entries.sort_by_key(|entry| Date::from_calendar_date(entry.year, entry.month, 1).unwrap());
+    entries.sort_by_key(|entry| {
+        (
+            Date::from_calendar_date(entry.year, entry.month, 1).unwrap(),
+            entry.group.clone(),
+            entry.subgroup.clone(),
+        )
+    });
 
     let entries = entries
         .into_iter()
@@ -131,16 +138,38 @@ fn summary(file: File, summary_args: SummaryArgs) -> anyhow::Result<()> {
 
     for ((month, year), entries) in &entries {
         let entries: Vec<Entry> = entries.collect();
-        println!("{month} {year}");
-        for (group, entries) in &entries.into_iter().group_by(|entry| entry.group.clone()) {
+
+        let heading = format!("{month} {year}");
+        let total_amount: isize = entries.iter().map(|entry| entry.amount).sum();
+        println!(
+            "{:<20}{:<20}",
+            heading.bold().green(),
+            total_amount.to_string().green(),
+        );
+
+        let entries = entries.into_iter().group_by(|entry| entry.group.clone());
+
+        for (group, entries) in &entries {
             let entries: Vec<Entry> = entries.collect();
+
             let group_amount: isize = entries.iter().map(|entry| entry.amount).sum();
-            println!("\t{group: <20}{:<20}{group_amount:<20}", "");
-            for (subgroup, entries) in &entries.into_iter().group_by(|entry| entry.subgroup.clone())
-            {
+            println!(
+                "{: <20}{:<20}",
+                group.blue(),
+                group_amount.to_string().blue()
+            );
+
+            let entries = entries.into_iter().group_by(|entry| entry.subgroup.clone());
+
+            for (subgroup, entries) in &entries {
                 let entries: Vec<Entry> = entries.collect();
+
                 let subgroup_amount: isize = entries.iter().map(|entry| entry.amount).sum();
-                println!("\t\t{subgroup: <20}{subgroup_amount:<20}");
+                println!(
+                    "{: <20}{:<20}",
+                    subgroup.purple(),
+                    subgroup_amount.to_string().purple()
+                );
             }
         }
     }
